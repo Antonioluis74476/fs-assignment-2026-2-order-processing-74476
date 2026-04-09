@@ -153,7 +153,7 @@ public class OrdersController : ControllerBase
 		return Ok(new OrderStatusResponseDto
 		{
 			OrderId = order.Id,
-			Status = order.Status,
+			Status = order.Status.ToString(),
 			CustomerId = order.CustomerId,
 			CorrelationId = order.CorrelationId,
 			PaymentStatus = order.PaymentStatus
