@@ -1,8 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
 using SportsStore.Controllers;
+using SportsStore.Infrastructure.OrderManagement;
 using SportsStore.Models;
+using SportsStore.Models.Integration;
 using Xunit;
 
 namespace SportsStore.Tests
@@ -13,46 +17,112 @@ namespace SportsStore.Tests
 			=> new Mock<ILogger<OrderController>>().Object;
 
 		[Fact]
-		public void Cannot_Checkout_Empty_Cart()
+		public async Task Cannot_Checkout_Empty_Cart()
 		{
-			Mock<IOrderRepository> mock = new Mock<IOrderRepository>();
-			Cart cart = new Cart();
-			Order order = new Order();
-			OrderController target = new OrderController(mock.Object, cart, GetLogger());
-			ViewResult? result = target.Checkout(order) as ViewResult;
-			mock.Verify(m => m.SaveOrder(It.IsAny<Order>()), Times.Never);
+			var cart = new Cart();
+			var apiClientMock = new Mock<IOrderManagementApiClient>();
+
+			var target = new OrderController(
+				cart,
+				GetLogger(),
+				apiClientMock.Object);
+
+			var order = new Order();
+
+			var actionResult = await target.Checkout(order);
+			var result = actionResult as ViewResult;
+
+			apiClientMock.Verify(
+				m => m.CheckoutAsync(It.IsAny<CheckoutOrderRequestDto>()),
+				Times.Never);
+
+			Assert.NotNull(result);
 			Assert.True(string.IsNullOrEmpty(result?.ViewName));
-			Assert.False(result?.ViewData.ModelState.IsValid);
+			Assert.False(result!.ViewData.ModelState.IsValid);
 		}
 
 		[Fact]
-		public void Cannot_Checkout_Invalid_ShippingDetails()
+		public async Task Cannot_Checkout_Invalid_ShippingDetails()
 		{
-			Mock<IOrderRepository> mock = new Mock<IOrderRepository>();
-			Cart cart = new Cart();
-			cart.AddItem(new Product(), 1);
-			OrderController target = new OrderController(mock.Object, cart, GetLogger());
+			var cart = new Cart();
+			cart.AddItem(new Product
+			{
+				ProductID = 1,
+				Name = "Test Product",
+				Price = 100m,
+				Description = "Test",
+				Category = "Test"
+			}, 1);
+
+			var apiClientMock = new Mock<IOrderManagementApiClient>();
+
+			var target = new OrderController(
+				cart,
+				GetLogger(),
+				apiClientMock.Object);
+
 			target.ModelState.AddModelError("error", "error");
-			ViewResult? result = target.Checkout(new Order()) as ViewResult;
-			mock.Verify(m => m.SaveOrder(It.IsAny<Order>()), Times.Never);
+
+			var actionResult = await target.Checkout(new Order());
+			var result = actionResult as ViewResult;
+
+			apiClientMock.Verify(
+				m => m.CheckoutAsync(It.IsAny<CheckoutOrderRequestDto>()),
+				Times.Never);
+
+			Assert.NotNull(result);
 			Assert.True(string.IsNullOrEmpty(result?.ViewName));
-			Assert.False(result?.ViewData.ModelState.IsValid);
+			Assert.False(result!.ViewData.ModelState.IsValid);
 		}
 
 		[Fact]
-		public void Can_Checkout_And_Submit_Order()
+		public async Task Can_Checkout_And_Submit_Order()
 		{
-			Mock<IOrderRepository> mock = new Mock<IOrderRepository>();
-			Cart cart = new Cart();
-			cart.AddItem(new Product(), 1);
-			OrderController target = new OrderController(mock.Object, cart, GetLogger());
+			var cart = new Cart();
+			cart.AddItem(new Product
+			{
+				ProductID = 1,
+				Name = "Kayak",
+				Price = 275m,
+				Description = "A boat",
+				Category = "Watersports"
+			}, 2);
 
-			RedirectToActionResult? result =
-				target.Checkout(new Order()) as RedirectToActionResult;
+			var apiClientMock = new Mock<IOrderManagementApiClient>();
+			apiClientMock
+				.Setup(m => m.CheckoutAsync(It.IsAny<CheckoutOrderRequestDto>()))
+				.ReturnsAsync(new CheckoutOrderResponseDto
+				{
+					OrderId = 123,
+					Status = "Submitted",
+					CorrelationId = Guid.NewGuid()
+				});
 
-			mock.Verify(m => m.SaveOrder(It.IsAny<Order>()), Times.Once);
-			Assert.Equal("Pay", result?.ActionName);
-			Assert.Equal("Payment", result?.ControllerName);
+			var target = new OrderController(
+				cart,
+				GetLogger(),
+				apiClientMock.Object);
+
+			var order = new Order
+			{
+				Name = "Luis Test",
+				Line1 = "123 Main Street",
+				City = "Dublin",
+				State = "Leinster",
+				Country = "Ireland"
+			};
+
+			var actionResult = await target.Checkout(order);
+			var result = actionResult as RedirectToActionResult;
+
+			apiClientMock.Verify(
+				m => m.CheckoutAsync(It.IsAny<CheckoutOrderRequestDto>()),
+				Times.Once);
+
+			Assert.NotNull(result);
+			Assert.Equal("Track", result!.ActionName);
+			Assert.Null(result.ControllerName);
+			Assert.Equal(123, result.RouteValues?["orderId"]);
 		}
 	}
 }

@@ -45,9 +45,10 @@ public class PaymentApprovedConsumer : IConsumer<PaymentApproved>
 		_db.ShipmentRecords.Add(new ShipmentRecord
 		{
 			OrderId = order.Id,
+			Success = true,
 			ShipmentReference = shipmentReference,
-			Carrier = "DemoCarrier",
 			EstimatedDispatchUtc = estimatedDispatchUtc,
+			Message = "Shipment created",
 			CreatedAtUtc = DateTime.UtcNow
 		});
 

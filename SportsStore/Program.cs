@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Serilog;
 using SportsStore.Infrastructure;
 using SportsStore.Models;
+using SportsStore.Infrastructure.OrderManagement;
 
 Log.Logger = new LoggerConfiguration()
 	.MinimumLevel.Information()
@@ -55,6 +56,14 @@ try
 	builder.Services.Configure<StripeSettings>(
 		builder.Configuration.GetSection("Stripe"));
 	builder.Services.AddScoped<IPaymentService, StripePaymentService>();
+
+	builder.Services.AddHttpClient<IOrderManagementApiClient, OrderManagementApiClient>((sp, client) =>
+	{
+		var configuration = sp.GetRequiredService<IConfiguration>();
+		var baseUrl = configuration["OrderManagementApi:BaseUrl"];
+
+		client.BaseAddress = new Uri(baseUrl!);
+	});
 
 	var app = builder.Build();
 
