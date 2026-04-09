@@ -58,6 +58,16 @@ try
 	builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 	builder.Services.AddMediatR(AppDomain.CurrentDomain.GetAssemblies());
 
+	builder.Services.AddCors(options =>
+	{
+		options.AddPolicy("ReactAdminDashboard", policy =>
+		{
+			policy.WithOrigins("http://localhost:5173")
+				  .AllowAnyHeader()
+				  .AllowAnyMethod();
+		});
+	});
+
 	var app = builder.Build();
 
 	if (app.Environment.IsDevelopment())
@@ -67,6 +77,7 @@ try
 	}
 
 	app.UseHttpsRedirection();
+	app.UseCors("ReactAdminDashboard");
 	app.UseAuthorization();
 	app.MapControllers();
 
