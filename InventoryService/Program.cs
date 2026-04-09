@@ -1,13 +1,12 @@
+using InventoryService.Consumers;
+using InventoryService.Data;
 using MassTransit;
-using MediatR;
 using Microsoft.EntityFrameworkCore;
-using OrderManagement.API.Data;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration()
 	.MinimumLevel.Information()
 	.MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
-	.MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
 	.MinimumLevel.Override("Microsoft.Hosting", Serilog.Events.LogEventLevel.Warning)
 	.Enrich.FromLogContext()
 	.WriteTo.Console()
@@ -17,28 +16,24 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-	Log.Information("OrderManagement.API starting up");
+	Log.Information("InventoryService starting up");
 
-	var builder = WebApplication.CreateBuilder(args);
+	var builder = Host.CreateApplicationBuilder(args);
 
-	builder.Host.UseSerilog((ctx, lc) => lc
-		.ReadFrom.Configuration(ctx.Configuration)
+	builder.Services.AddSerilog((services, lc) => lc
+		.ReadFrom.Configuration(builder.Configuration)
 		.Enrich.FromLogContext()
 		.WriteTo.Console()
 		.WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
 		.WriteTo.Seq("http://localhost:5341"));
 
-	builder.Services.AddControllers();
-	builder.Services.AddEndpointsApiExplorer();
-	builder.Services.AddSwaggerGen();
-
-	builder.Services.AddDbContext<OrderManagementDbContext>(options =>
+	builder.Services.AddDbContext<InventoryDbContext>(options =>
 		options.UseSqlServer(
 			builder.Configuration.GetConnectionString("OrderManagementConnection")));
 
 	builder.Services.AddMassTransit(x =>
 	{
-		x.SetKebabCaseEndpointNameFormatter();
+		x.AddConsumer<OrderSubmittedConsumer>();
 
 		x.UsingRabbitMq((context, cfg) =>
 		{
@@ -55,27 +50,14 @@ try
 		});
 	});
 
-	builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-	builder.Services.AddMediatR(AppDomain.CurrentDomain.GetAssemblies());
+	var host = builder.Build();
 
-	var app = builder.Build();
-
-	if (app.Environment.IsDevelopment())
-	{
-		app.UseSwagger();
-		app.UseSwaggerUI();
-	}
-
-	app.UseHttpsRedirection();
-	app.UseAuthorization();
-	app.MapControllers();
-
-	Log.Information("OrderManagement.API started successfully");
-	app.Run();
+	Log.Information("InventoryService started successfully");
+	host.Run();
 }
 catch (Exception ex)
 {
-	Log.Fatal(ex, "OrderManagement.API terminated unexpectedly");
+	Log.Fatal(ex, "InventoryService terminated unexpectedly");
 }
 finally
 {
