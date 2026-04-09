@@ -1,0 +1,20 @@
+﻿@{
+    ViewData["Title"] = "Track Order";
+}
+
+<div class="text-center">
+    <h2>Order Tracking</h2>
+    <p>Your order number is <strong>#@ViewBag.OrderId</strong></p>
+    <p>Current status: <strong>@ViewBag.Status</strong></p>
+    <p>Payment status: <strong>@ViewBag.PaymentStatus</strong></p>
+    <p>Correlation ID: <small>@ViewBag.CorrelationId</small></p>
+
+    <div class="mt-3">
+        <a class="btn btn-primary" asp-action="Track" asp-route-orderId="@ViewBag.OrderId">
+            Refresh Status
+        </a>
+        <a class="btn btn-secondary" asp-controller="Home" asp-action="Index">
+            Return to Store
+        </a>
+    </div>
+</div>

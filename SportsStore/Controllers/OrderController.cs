@@ -1,20 +1,24 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using SportsStore.Infrastructure.OrderManagement;
 using SportsStore.Models;
+using SportsStore.Models.Integration;
 
 namespace SportsStore.Controllers
 {
 	public class OrderController : Controller
 	{
-		private IOrderRepository repository;
-		private Cart cart;
+		private readonly Cart _cart;
 		private readonly ILogger<OrderController> _logger;
+		private readonly IOrderManagementApiClient _orderManagementApiClient;
 
-		public OrderController(IOrderRepository repoService, Cart cartService,
-			ILogger<OrderController> logger)
+		public OrderController(
+			Cart cartService,
+			ILogger<OrderController> logger,
+			IOrderManagementApiClient orderManagementApiClient)
 		{
-			repository = repoService;
-			cart = cartService;
+			_cart = cartService;
 			_logger = logger;
+			_orderManagementApiClient = orderManagementApiClient;
 		}
 
 		public ViewResult Checkout()
@@ -24,13 +28,13 @@ namespace SportsStore.Controllers
 		}
 
 		[HttpPost]
-		public IActionResult Checkout(Order order)
+		public async Task<IActionResult> Checkout(Order order)
 		{
 			_logger.LogInformation(
 				"Checkout submitted for customer {Name}, {Line1}, {City}",
 				order.Name, order.Line1, order.City);
 
-			if (!cart.Lines.Any())
+			if (!_cart.Lines.Any())
 			{
 				_logger.LogWarning("Checkout attempted with empty cart by {Name}", order.Name);
 				ModelState.AddModelError("", "Sorry, your cart is empty!");
@@ -39,29 +43,76 @@ namespace SportsStore.Controllers
 			if (!ModelState.IsValid)
 			{
 				_logger.LogWarning("Order checkout failed validation for {Name}", order.Name);
-				return View(order); // keep validation messages + user input
+				return View(order);
 			}
 
 			try
 			{
-				order.Lines = cart.Lines.ToArray();
-				order.PaymentStatus = "Pending"; // track until Stripe confirms payment
+				var request = new CheckoutOrderRequestDto
+				{
+					CustomerId = User?.Identity?.Name ?? "guest-customer",
+					CustomerName = order.Name ?? "Unknown Customer",
+					Line1 = order.Line1 ?? string.Empty,
+					Line2 = order.Line2,
+					Line3 = order.Line3,
+					City = order.City ?? string.Empty,
+					State = order.State ?? string.Empty,
+					Zip = order.Zip,
+					Country = order.Country ?? string.Empty,
+					GiftWrap = order.GiftWrap,
+					Items = _cart.Lines.Select(l => new CheckoutOrderItemDto
+					{
+						ProductId = l.Product.ProductID ?? 0,
+						ProductName = l.Product.Name,
+						UnitPrice = l.Product.Price,
+						Quantity = l.Quantity
+					}).ToList()
+				};
 
-				repository.SaveOrder(order);
+				var result = await _orderManagementApiClient.CheckoutAsync(request);
+
+				if (result is null)
+				{
+					_logger.LogError("Distributed checkout failed for customer {Name}", order.Name);
+					ModelState.AddModelError("", "There was an error submitting your order. Please try again.");
+					return View(order);
+				}
 
 				_logger.LogInformation(
-					"Order {OrderId} created for {Name} with {ItemCount} items. Redirecting to payment.",
-					order.OrderID, order.Name, order.Lines.Count);
+					"Distributed order submitted successfully. OrderId: {OrderId}, Status: {Status}",
+					result.OrderId, result.Status);
 
-				// IMPORTANT: don't clear cart yet — clear only after successful payment confirmation
-				return RedirectToAction("Pay", "Payment", new { orderId = order.OrderID });
+				_cart.Clear();
+
+				return RedirectToAction(nameof(Track), new { orderId = result.OrderId });
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Failed to save order for {Name}", order.Name);
+				_logger.LogError(ex, "Failed to submit distributed order for {Name}", order.Name);
 				ModelState.AddModelError("", "There was an error processing your order. Please try again.");
 				return View(order);
 			}
+		}
+
+		[HttpGet]
+		public async Task<IActionResult> Track(int orderId)
+		{
+			var status = await _orderManagementApiClient.GetOrderStatusAsync(orderId);
+
+			if (status is null)
+			{
+				ViewBag.OrderId = orderId;
+				ViewBag.Status = "Unknown";
+				ViewBag.PaymentStatus = "Unknown";
+				return View();
+			}
+
+			ViewBag.OrderId = status.OrderId;
+			ViewBag.Status = status.Status;
+			ViewBag.PaymentStatus = status.PaymentStatus;
+			ViewBag.CorrelationId = status.CorrelationId;
+
+			return View();
 		}
 	}
 }
